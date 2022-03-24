@@ -7,8 +7,13 @@ const context = {
   }
 }
 
-const omni = new Omni('https://ruben.verborgh.org/profile/', { context })
-await omni.initDatabase()
+const omni = await new Omni('https://ruben.verborgh.org/profile/', { context })
+
+
+
+
+
+// Somewhere in your app. ----------------------
 
 const showPersonInfo = async (uri) => {
   const person = omni.get(uri)

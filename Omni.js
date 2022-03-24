@@ -28,8 +28,6 @@ export class Omni extends ComunicaEngine {
       triples: null
     }
 
-    this.initPromise = this.initDatabase()
-
     const originalQuery = this._engine.query
 
     /**
@@ -74,6 +72,11 @@ export class Omni extends ComunicaEngine {
 
       return results
     }
+
+    return new Promise(async (resolve) => {
+      await this.initDatabase()
+      resolve(this)
+    })
   }
 
   /**
