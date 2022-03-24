@@ -1,0 +1,20 @@
+{
+  "name": "ldflex-offline-fallback",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Daniel Beeke",
+  "license": "ISC",
+  "dependencies": {
+    "@ldflex/comunica": "^4.0.0",
+    "@rdfjs/data-model": "^2.0.0",
+    "ldflex": "^2.15.0"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^3.1.7"
+  }
+}
