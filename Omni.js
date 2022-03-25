@@ -33,13 +33,13 @@ export class Omni extends ComunicaEngine {
     /**
      * Grabs results from queries and saves them in IndexedDB.
      * When the navigator is offLine this returns results from previous requests.
+     * 
+     * I am not sure why a clone on the bindingstream does not result in a copy.
      */
     this._engine.query = async (query, source) => {
-      console.log(query)
+      const queryHash = hash(JSON.stringify(source) + query)
 
-      const queryHash = hash(query)
-
-      if (!navigator.onLine) {
+      if (queryHash && !navigator.onLine) {
         const queryObject = await this.transaction('queries', [{ command: 'get', data: queryHash }])
         const bindingsMap = JSON.parse(queryObject?.bindings ?? '[]').map(immutable.Map)
         const bindingsStream = new ArrayIterator(bindingsMap, { autoStart: false })
@@ -53,30 +53,44 @@ export class Omni extends ComunicaEngine {
 
       const results = await originalQuery.apply(this._engine, [query, source])
 
-      const clonedStream = await results.bindingsStream.clone()
-      const bindings = []
-      clonedStream.on('data', (binding) => bindings.push(binding))
-      clonedStream.on('end', async () => {
-        const queryObject = { 
-          id: queryHash, 
-          query, 
-          bindings: JSON.stringify(bindings), 
-          variables: results.variables 
-        }
+      return new Promise((resolve) => {
+        const bindings = []
+        results.bindingsStream.on('data', (binding) => {
+          bindings.push(binding)
+        })
 
-        await this.transaction('queries', [
-          { command: 'delete', data: queryObject.id },
-          { command: 'add', data: queryObject }
-        ], 'readwrite')
+        results.bindingsStream.on('end', async () => {
+          resolve(this.returnBindingsAsResult(bindings, results.variables))
+
+          const queryObject = { 
+            id: queryHash, 
+            query, 
+            bindings: JSON.stringify(bindings), 
+            variables: results.variables 
+          }
+  
+          await this.transaction('queries', [
+            { command: 'delete', data: queryObject.id },
+            { command: 'add', data: queryObject }
+          ], 'readwrite')
+        })
       })
-
-      return results
     }
 
     return new Promise(async (resolve) => {
       await this.initDatabase()
       resolve(this)
     })
+  }
+
+  async returnBindingsAsResult (bindings, variables) {
+    const bindingsMap = (typeof bindings === 'string' ? JSON.parse(bindings ?? '[]') : bindings).map(immutable.Map)
+    const bindingsStream = new ArrayIterator(bindingsMap, { autoStart: false })
+    return {
+      type: 'bindings',
+      bindingsStream,
+      variables: variables
+    }
   }
 
   /**
