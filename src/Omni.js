@@ -56,11 +56,11 @@ export class Omni extends ComunicaEngine {
 
       const streamedResults = []
 
-      results.on('data', (result) => {
+      clonedResults.on('data', (result) => {
         streamedResults.push(result)
       })
 
-      results.on('end', () => {
+      clonedResults.on('end', () => {
         const queryObject = { 
           id: queryHash,
           query,
@@ -73,7 +73,7 @@ export class Omni extends ComunicaEngine {
         ], 'readwrite')
       })
 
-      return clonedResults
+      return results
     }
 
     return new Promise(async (resolve) => {
