@@ -13,10 +13,14 @@
   "author": "Daniel Beeke",
   "license": "ISC",
   "dependencies": {
+    "@ldflex/async-iteration-handlers": "^1.1.1",
     "@ldflex/comunica": "*",
     "@rdfjs/data-model": "*",
+    "htm": "^3.1.0",
     "ldflex": "*",
-    "rdf-data-factory": "^1.1.0"
+    "preact": "^10.7.0",
+    "rdf-data-factory": "^1.1.0",
+    "uhtml": "^2.8.0"
   },
   "resolutions": {
     "entities": "2.2.0"
