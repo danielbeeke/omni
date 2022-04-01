@@ -4,17 +4,29 @@
   "description": "",
   "main": "index.js",
   "type": "module",
+  "browserslist": "last 2 versions",
+  "source": "src/index.html",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "parcel src/index.html",
+    "build": "parcel build"
   },
   "author": "Daniel Beeke",
   "license": "ISC",
   "dependencies": {
-    "@ldflex/comunica": "^4.0.0",
-    "@rdfjs/data-model": "^2.0.0",
-    "ldflex": "^2.15.0"
+    "@ldflex/comunica": "*",
+    "@rdfjs/data-model": "*",
+    "ldflex": "*",
+    "rdf-data-factory": "^1.1.0"
+  },
+  "resolutions": {
+    "entities": "2.2.0"
   },
   "devDependencies": {
-    "fake-indexeddb": "^3.1.7"
+    "buffer": "^6.0.3",
+    "fake-indexeddb": "^3.1.7",
+    "parcel": "^2.4.0",
+    "process": "^0.11.10",
+    "stream-browserify": "^3.0.0",
+    "util": "^0.12.4"
   }
 }

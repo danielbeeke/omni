@@ -1,15 +1,16 @@
-import ldflexComunica from "@ldflex/comunica";
-const { default: ComunicaEngine } = ldflexComunica
+import ComunicaEngine from "@ldflex/comunica";
 import { PathFactory } from 'ldflex'
 import dataModel from '@rdfjs/data-model'
 const { namedNode } = dataModel
 import { hash } from "./helpers/hash.js";
 import { ArrayIterator } from 'asynciterator'
 import immutable from 'immutable'
+import { Bindings } from '@comunica/bindings-factory' ;
+import { DataFactory } from 'rdf-data-factory';
 
 // Isomorphic trickery.
-if (!globalThis.indexedDB) await import('fake-indexeddb/auto.js')
-if (!globalThis.navigator) globalThis.navigator = { onLine: true }
+// if (!globalThis.indexedDB) await import('fake-indexeddb/auto.js')
+// if (!globalThis.navigator) globalThis.navigator = { onLine: true }
 
 /**
  * Easy offline storage with LDflex, how does it work?
@@ -22,75 +23,63 @@ export class Omni extends ComunicaEngine {
   constructor (defaultSource, settings) {
     super(defaultSource, settings)
     this.__context = settings.context
+    this.simulateOffline = false
+
+    delete settings.context
 
     this.stores = {
       queries: null,
       triples: null
     }
 
-    const originalQuery = this._engine.query
+    const originalQuery = this.engine.queryBindings
 
     /**
      * Grabs results from queries and saves them in IndexedDB.
      * When the navigator is offLine this returns results from previous requests.
-     * 
-     * I am not sure why a clone on the bindingstream does not result in a copy.
      */
-    this._engine.query = async (query, source) => {
+    this.engine.queryBindings = async (query, source) => {
       const queryHash = hash(JSON.stringify(source) + query)
+      const dataFactory = new DataFactory()
 
-      if (queryHash && !navigator.onLine) {
+      if (queryHash && (!navigator.onLine || this.simulateOffline)) {
         const queryObject = await this.transaction('queries', [{ command: 'get', data: queryHash }])
-        const bindingsMap = JSON.parse(queryObject?.bindings ?? '[]').map(immutable.Map)
-        const bindingsStream = new ArrayIterator(bindingsMap, { autoStart: false })
+        if (!queryObject) return null
 
-        return {
-          type: 'bindings',
-          bindingsStream,
-          variables: queryObject?.variables
-        }
+        const items = JSON.parse(queryObject.entries)
+        const bindings = items.map(item => new Bindings(dataFactory, immutable.Map(item.entries)))
+        return new ArrayIterator(bindings, { autoStart: true })
       }
 
-      const results = await originalQuery.apply(this._engine, [query, source])
+      const results = await originalQuery.apply(this.engine, [query, source])
+      const clonedResults = results.clone()
 
-      return new Promise((resolve) => {
-        const bindings = []
-        results.bindingsStream.on('data', (binding) => {
-          bindings.push(binding)
-        })
+      const streamedResults = []
 
-        results.bindingsStream.on('end', async () => {
-          resolve(this.returnBindingsAsResult(bindings, results.variables))
-
-          const queryObject = { 
-            id: queryHash, 
-            query, 
-            bindings: JSON.stringify(bindings), 
-            variables: results.variables 
-          }
-  
-          await this.transaction('queries', [
-            { command: 'delete', data: queryObject.id },
-            { command: 'add', data: queryObject }
-          ], 'readwrite')
-        })
+      results.on('data', (result) => {
+        streamedResults.push(result)
       })
+
+      results.on('end', () => {
+        const queryObject = { 
+          id: queryHash,
+          query,
+          entries: JSON.stringify(streamedResults),
+        }
+
+        this.transaction('queries', [
+          { command: 'delete', data: queryObject.id },
+          { command: 'add', data: queryObject }
+        ], 'readwrite')
+      })
+
+      return clonedResults
     }
 
     return new Promise(async (resolve) => {
       await this.initDatabase()
       resolve(this)
     })
-  }
-
-  async returnBindingsAsResult (bindings, variables) {
-    const bindingsMap = (typeof bindings === 'string' ? JSON.parse(bindings ?? '[]') : bindings).map(immutable.Map)
-    const bindingsStream = new ArrayIterator(bindingsMap, { autoStart: false })
-    return {
-      type: 'bindings',
-      bindingsStream,
-      variables: variables
-    }
   }
 
   /**
