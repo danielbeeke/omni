@@ -8,50 +8,17 @@ const state = new Map()
 const defaultRender = () => window.dispatchEvent(new CustomEvent('draw'))
 const throttledDefaultRender = throttle(defaultRender, 100)
 
-const cacheToAsync = () => ({
-  [Symbol.asyncIterator]: async function * () {
-    for (const item of pathData.cache.property[expandedProp]) {
-      yield item
-    }
-  },
-
-  proxy: true,
-
-  toString () {
-    return pathData.cache.property[expandedProp][0].value
-  },
-
-  unfold (callback) {
-    const mapping = {}
-    const items = []
-
-    const prefix = `<${expandedProp}>/`
-
-    for (const key of Object.keys(pathData.cache.property)) {
-      if (key.startsWith(prefix)) {
-        let cleanedProp = key.replace(prefix, '')
-        cleanedProp = cleanedProp.replace(/\<|\>/g, '')
-        mapping[cleanedProp] = pathData.cache.property[key]
-      }
-    }
-
-    let finalExpandedProp
-    callback(new Proxy({}, {
-      get (target, prop, receiver) {
-        finalExpandedProp = context.expandTerm(prop)
-      }
-    }))
-
-    return mapping[finalExpandedProp]
-  }
-})
-
 const rewriteProxy = (pathData, context) => {
   return new Proxy({}, {
     get (target, prop, receiver) {
       const expandedProp = context.expandTerm(prop)
+
+      /**
+       * If the result has been cached by the preload.
+       */
       if (pathData.cache?.property?.[expandedProp]) {
         return {
+
           [Symbol.asyncIterator]: async function * () {
             for (const item of pathData.cache.property[expandedProp]) {
               yield item
@@ -89,10 +56,12 @@ const rewriteProxy = (pathData, context) => {
             
             return await Promise.all(output)
           },
-          
         }
       }
 
+      /**
+       * If the subject has been gathered by the preload.
+       */
       if (pathData.subject) {
         return {
           proxy: true,
@@ -102,6 +71,7 @@ const rewriteProxy = (pathData, context) => {
         }
       }
 
+      console.log(prop)
     }
   })
 }
@@ -117,7 +87,12 @@ export const progressively = (context) => ({
         items = []
         state.set(cid, items)
 
+        /**
+         * This is an independant thread. 
+         * This enables 'unfolding'
+         */
         ;(async () => {
+
           const chain = getChain(callback)
           if (chain.length) await path.preload(...chain)
 
@@ -130,8 +105,6 @@ export const progressively = (context) => ({
   
         })()
       }
-
-      // console.log(items)
 
       return items
     }
