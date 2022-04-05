@@ -1,25 +1,53 @@
-import { render, html } from './async'
+import { render, html } from './helpers/async.js'
 import { Omni } from './Omni.js'
 import context from './helpers/context.js'
 
 (async () => {
-  const omni = await new Omni('https://ruben.verborgh.org/profile/', { context })
-  const person = omni.get('https://ruben.verborgh.org/profile/#me')
+  const omni = await new Omni({
+    value: 'https://jena.mep/contents',
+    type: 'sparql'
+  }, { context })
+
+  const ebooks = omni.getAll('content:Ebook')
 
   // Simulate network cut off.
   // omni.simulateOffline = true
 
   const draw = async () => {
     render(document.body, html`
-    <h1>${person.name}</h1>
-    <ul>
-      ${person.friends.givenName.map(name => html`
-        <li>${name}</li>
-      `)}
-    </ul>
+      <ul>
+        ${ebooks.unfold(ebook => {
+
+          return html`
+            <li>
+              <h3>${ebook['schema:name']}</h3>
+
+              <h4>Keywords</h4>
+              <ul>${ebook['schema:keywords'].unfold(keyword => html`
+                <li>${keyword['schema:name']}</li>`)}
+              </ul>
+
+              <h4>Authors</h4>
+              <ul>${ebook['schema:author'].unfold(author => html`
+                <li>${author['schema:name']}</li>`)}
+              </ul>
+            </li>
+          `
+
+        })}
+      </ul>
   `);
   }
 
   window.addEventListener('draw', draw)
   draw()
+
+  // await ebooks.preload('schema:name', 'schema:genre/schema:name')
+  // for await (const ebook of ebooks) {
+  //   console.log(await ebook['schema:name'] + '')
+  //   // console.log(await ebook['schema:genre/schema:name'] + '')
+  //   for await (const genre of ebook['schema:genre/schema:name']) {
+  //     console.log('-- ' + await genre + '')
+  //   }
+  // }
 })()

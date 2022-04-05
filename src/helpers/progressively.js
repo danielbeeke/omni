@@ -1,35 +1,142 @@
 import { throttle } from './throttle.js'
+import { getChain } from './getChain.js'
+import { render, html } from './async'
+import { lazyThenable } from 'ldflex';
+import { toIterablePromise } from 'ldflex'
+
 const state = new Map()
-const throttledRenders = new Map()
-const defaultRender = () => {
-  window.dispatchEvent(new CustomEvent('draw'))
+const defaultRender = () => window.dispatchEvent(new CustomEvent('draw'))
+const throttledDefaultRender = throttle(defaultRender, 100)
+
+const cacheToAsync = () => ({
+  [Symbol.asyncIterator]: async function * () {
+    for (const item of pathData.cache.property[expandedProp]) {
+      yield item
+    }
+  },
+
+  proxy: true,
+
+  toString () {
+    return pathData.cache.property[expandedProp][0].value
+  },
+
+  unfold (callback) {
+    const mapping = {}
+    const items = []
+
+    const prefix = `<${expandedProp}>/`
+
+    for (const key of Object.keys(pathData.cache.property)) {
+      if (key.startsWith(prefix)) {
+        let cleanedProp = key.replace(prefix, '')
+        cleanedProp = cleanedProp.replace(/\<|\>/g, '')
+        mapping[cleanedProp] = pathData.cache.property[key]
+      }
+    }
+
+    let finalExpandedProp
+    callback(new Proxy({}, {
+      get (target, prop, receiver) {
+        finalExpandedProp = context.expandTerm(prop)
+      }
+    }))
+
+    return mapping[finalExpandedProp]
+  }
+})
+
+const rewriteProxy = (pathData, context) => {
+  return new Proxy({}, {
+    get (target, prop, receiver) {
+      const expandedProp = context.expandTerm(prop)
+      if (pathData.cache?.property?.[expandedProp]) {
+        return {
+          [Symbol.asyncIterator]: async function * () {
+            for (const item of pathData.cache.property[expandedProp]) {
+              yield item
+            }
+          },
+
+          proxy: true,
+
+          toString () {
+            return pathData.cache.property[expandedProp][0].value
+          },
+
+          async unfold (callback) {
+            const mapping = {}
+
+            const prefix = `<${expandedProp}>/`
+
+            for (const key of Object.keys(pathData.cache.property)) {
+              if (key.startsWith(prefix)) {
+                let cleanedProp = key.replace(prefix, '')
+                cleanedProp = cleanedProp.replace(/\<|\>/g, '')
+                mapping[cleanedProp] = pathData.cache.property[key]
+              }
+            }
+
+            let finalExpandedProp
+            callback(new Proxy({}, {
+              get (target, prop, receiver) {
+                // TODO only works for one call to the object.
+                finalExpandedProp = context.expandTerm(prop)
+              }
+            }))
+
+            const output = mapping[finalExpandedProp].map(item => callback(rewriteProxy(item, context)))
+            
+            return await Promise.all(output)
+          },
+          
+        }
+      }
+
+      if (pathData.subject) {
+        return {
+          proxy: true,
+          toString () {
+            return pathData.toString()
+          }
+        }
+      }
+
+    }
+  })
 }
 
-export const progressively = {
+export const progressively = (context) => ({
   handle: (pathData, path) => {
-    return (callback) => {
-      let items = state.get(callback.toString())
+    return function (callback) {
+      const cid = pathData.parent?.subject?.value + ':' + callback.toString()
+
+      let items = state.get(cid)
 
       if (items === undefined) {
-        throttledRenders.set(callback.toString(), throttle(defaultRender, 100))
         items = []
-        state.set(callback.toString(), items)
+        state.set(cid, items)
 
         ;(async () => {
-          for await (const item of path) {
-            const itemResult = await callback(item)
-            items.push(itemResult)
-            state.set(callback.toString(), items)
-            throttledRenders.get(callback.toString())()
-          }
-        })()
+          const chain = getChain(callback)
+          if (chain.length) await path.preload(...chain)
 
+          for (const item of pathData.resultsCache) {
+            const itemResult = await callback(rewriteProxy(item, context))
+            items.push(itemResult)
+            state.set(cid, items)
+            throttledDefaultRender()
+          }  
+  
+        })()
       }
+
+      // console.log(items)
 
       return items
     }
   }
-}
+})
 
 
 

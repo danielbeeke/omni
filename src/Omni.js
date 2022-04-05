@@ -5,10 +5,13 @@ const { namedNode } = dataModel
 import { hash } from "./helpers/hash.js";
 import { ArrayIterator } from 'asynciterator'
 import immutable from 'immutable'
-import { Bindings } from '@comunica/bindings-factory' ;
 import { DataFactory } from 'rdf-data-factory';
-import defaultIterationHandlers from '@ldflex/async-iteration-handlers'
+import { SparqlHandlerGraph } from "./helpers/SparqlHandler.js";
 import { progressively } from "./helpers/progressively.js";
+import asyncHandlers from '@ldflex/async-iteration-handlers'
+import { MultiPreloadHandler } from "./helpers/PreloadHandler.js";
+import { ContextParser } from 'jsonld-context-parser';
+import GetCache from "./helpers/getCache.js";
 
 // Isomorphic trickery.
 // if (!globalThis.indexedDB) await import('fake-indexeddb/auto.js')
@@ -25,6 +28,11 @@ export class Omni extends ComunicaEngine {
   constructor (defaultSource, settings) {
     super(defaultSource, settings)
     this.context = settings.context
+    const myParser = new ContextParser({
+      skipValidation: true,
+      expandContentTypeToBase: true,
+    });
+
     this.simulateOffline = false
 
     delete settings.context
@@ -36,13 +44,13 @@ export class Omni extends ComunicaEngine {
 
     this.dataFactory = new DataFactory()
 
-    const originalQuery = this.engine.queryBindings
+    const originalQuery = this._engine.query
 
     /**
      * Grabs results from queries and saves them in IndexedDB.
      * When the navigator is offLine this returns results from previous requests.
      */
-    this.engine.queryBindings1 = async (query, source) => {
+    this._engine.query1 = async (query, source) => {
       const queryHash = hash(JSON.stringify(source) + query)
 
       if (queryHash && (!navigator.onLine || this.simulateOffline)) {
@@ -53,13 +61,13 @@ export class Omni extends ComunicaEngine {
         return this.output(items)
       }
 
-      const results = await originalQuery.apply(this.engine, [query, source])
-      const clonedResults = results.clone()
+      const results = await originalQuery.apply(this._engine, [query, source])
+      const clonedResults = results.bindingsStream.clone()
       const streamedResults = []
 
-      results.on('data', (result) => streamedResults.push(result))
+      results.bindingsStream.on('data', (result) => streamedResults.push(result))
 
-      results.on('end', () => {
+      results.bindingsStream.on('end', () => {
         const queryObject = { id: queryHash, query, entries: JSON.stringify(streamedResults) }
 
         this.transaction('queries', [
@@ -68,10 +76,12 @@ export class Omni extends ComunicaEngine {
         ], 'readwrite')
       })
 
-      return clonedResults
+      return results
     }
 
     return new Promise(async (resolve) => {
+      this.parsedContext = await myParser.parse(this.context);
+
       await this.initDatabase()
       resolve(this)
     })
@@ -119,12 +129,21 @@ export class Omni extends ComunicaEngine {
   get (uri) {
     const handlers = {
       ...defaultHandlers,
-      map: progressively
+      ...asyncHandlers,
+      unfold: progressively(this.parsedContext),
+      preload: new MultiPreloadHandler(),
+      cache: new GetCache(this.parsedContext),
+      sparql: new SparqlHandlerGraph()
     }
 
     if (!this.paths) this.paths = new PathFactory({ context: this.context, handlers, queryEngine: this });
 
     return this.paths.create({ subject: namedNode(uri) })
+  }
+
+  getAll (rdfClass) {
+    rdfClass = this.parsedContext.expandTerm(rdfClass)
+    return this.get(rdfClass)['^rdf:type']
   }
   
   /**

@@ -59,5 +59,3 @@ export const render = (where, what) => {
   const hole = typeof what === 'function' ? what() : what;
   return Promise.resolve(hole).then(what => $render(where, what));
 };
-
-export {Hole} from './index.js';
